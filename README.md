@@ -1,4 +1,4 @@
-# Exercise for <The Go Programming Language>
+# Exercise for 《The Go Programming Language》
 
 ## example
 
