@@ -15,7 +15,7 @@ func newConn() (net.Conn, error) {
 }
 
 func main() {
-	conn, err := net.Dial("tcp", ":8000")
+	conn, err := newConn()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -65,7 +65,7 @@ func readConnection(c net.Conn) {
 }
 
 func readFile(fileName string) {
-	c,err :=  newConn()
+	c, err := newConn()
 	if err != nil {
 		log.Println("Error new connection", err)
 		return

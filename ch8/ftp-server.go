@@ -12,17 +12,28 @@ import (
 )
 
 type Client struct {
-	Conn *net.Conn
+	ControlConn net.Conn // control connection
+	FileConn    net.Conn // file connection
+	RemoteAddr  net.Addr // client address
 }
 
 type Server struct {
-	Clients []*Client
-	Port    string
+	ClientsMap map[net.Addr]*Client
+	Port       string
 	net.Listener
 }
 
-func NewClient(Conn *net.Conn) *Client {
-	return &Client{Conn: Conn}
+func (c *Client) Close() {
+	if c.ControlConn != nil {
+		c.ControlConn.Close()
+	}
+	if c.FileConn != nil {
+		c.FileConn.Close()
+	}
+}
+
+func NewClient(conn net.Conn) *Client {
+	return &Client{ControlConn: conn, RemoteAddr: conn.RemoteAddr()}
 }
 
 func NewServer(scheme string, port string) (*Server, error) {
@@ -31,14 +42,14 @@ func NewServer(scheme string, port string) (*Server, error) {
 		return nil, err
 	}
 	return &Server{
-		Listener: listener,
-		Port:     port,
-		Clients:  make([]*Client, 0),
+		Listener:   listener,
+		Port:       port,
+		ClientsMap: make(map[net.Addr]*Client, 0),
 	}, nil
 }
 
 func main() {
-	server, err := NewServer("tcp", ":8080")
+	server, err := NewServer("tcp", ":8000")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -49,12 +60,28 @@ func main() {
 			log.Println(err)
 			continue
 		}
-		server.Clients = append(server.Clients, NewClient(&conn))
-		go handleConnection(conn)
+		go server.serverConn(conn)
 	}
 }
 
-func handleConnection(conn net.Conn) {
+func (server *Server) serverConn(conn net.Conn) {
+	client,ok := server.ClientsMap[conn.RemoteAddr()]
+	if ok {
+		log.Printf("client %s is already exists, establish file connnecton\n",conn.RemoteAddr())
+		// set file connection for client
+		client.FileConn = conn
+	}else {
+		log.Printf("create new client for %s",conn.RemoteAddr())
+		// create new client
+		client = NewClient(conn)
+	}
+	server.ClientsMap[conn.RemoteAddr()] = client
+	go handleConnection(client)
+	// go handleConnection(*client.FileConn)
+}
+
+func handleConnection(client *Client) {
+	conn := client.ControlConn
 	defer conn.Close()
 	for {
 		cmd, err := bufio.NewReader(conn).ReadString('\n')
@@ -80,18 +107,7 @@ func handleConnection(conn net.Conn) {
 				continue
 			}
 			log.Println("received:", cmds[1])
-			writeFile(conn, cmds[1])
-			// fileInfo, err := os.Stat(cmds[1])
-			// if err != nil {
-			// 	write(conn, err.Error())
-			// 	continue
-			// }
-			// if !fileInfo.IsDir() {
-			// 	// send file
-			// 	writeFile(conn, fileInfo)
-			// } else {
-			// 	// todo: read dir and retrun file to client
-			// }
+			writeFile(client.FileConn, cmds[1])
 		default:
 			c := exec.Command(cmds[0], cmds[1:]...)
 			if b, err := c.Output(); err == nil {
